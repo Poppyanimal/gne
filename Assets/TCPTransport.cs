@@ -18,12 +18,6 @@ public class TCPTransport
     //because the using will handle it itself
     Socket externalListener, internalClient, externalClient, internalListener;
 
-    int maxHashMemory = 20;
-    int packetsToSpam = 5;
-    List<ushort> hashMemory = new List<ushort>();
-
-    System.Random rand = new();
-
     public async void runServerForwarder(int hostingPort = 25565, int gofPort = 35751)
     {
         //external hosting via tcp
@@ -32,7 +26,7 @@ public class TCPTransport
         IPEndPoint extEndPoint = new IPEndPoint(extIP, extPort);
 
         externalListener
-            = new(extIP.AddressFamily, SocketType.Stream, ProtocolType.Unspecified);
+            = new(extIP.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 
         externalListener.Bind(extEndPoint);
         externalListener.Listen(100);
@@ -82,7 +76,7 @@ public class TCPTransport
         IPEndPoint extEndPoint = new IPEndPoint(extIP, extPort);
 
         externalClient
-            = new(extIP.AddressFamily, SocketType.Stream, ProtocolType.Unspecified);
+            = new(extIP.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 
         Debug.Log("waiting to connect to external server");
         await externalClient.ConnectAsync(extEndPoint);
@@ -106,30 +100,10 @@ public class TCPTransport
             var bufferExt = new byte[1_024]; //byte buffer of 1,024 bytes
             var receivedExt = await externalHandler.ReceiveAsync(bufferExt, SocketFlags.None);
 
-            if(receivedExt > 2)
-            {
-                var signatureBytes = new byte[2];
-                Array.Copy(bufferExt, signatureBytes, 2);
+            var dataBytes = new byte[receivedExt];
+            Array.Copy(bufferExt, dataBytes, receivedExt);
 
-                ushort signature = BitConverter.ToUInt16(signatureBytes);
-
-                if(!hashMemory.Contains(signature))
-                {
-                    hashMemory.Add(signature);
-                    if(hashMemory.Count > maxHashMemory)
-                        hashMemory.RemoveAt(0);
-
-                    var dataBytes = new byte[receivedExt - 2];
-                    Array.Copy(bufferExt, 2, dataBytes, 0, receivedExt);
-
-                    await internalClient.SendAsync(dataBytes, SocketFlags.None);
-                }
-
-            }
-            else
-            {
-                Debug.LogError("Server External -> Internal packet size less than 3 at "+receivedExt+" ; discarding packet");
-            }
+            await internalClient.SendAsync(dataBytes, SocketFlags.None);
         }
 
     }
@@ -142,15 +116,10 @@ public class TCPTransport
             var bufferExt = new byte[1_024]; //byte buffer of 1,024 bytes
             var receivedExt = await internalClient.ReceiveAsync(bufferExt, SocketFlags.None);
 
-            var dataBytesWSignature = new byte[receivedExt+2];
-            Array.Copy(bufferExt, 0, dataBytesWSignature, 2, receivedExt);
+            var dataBytes = new byte[receivedExt];
+            Array.Copy(bufferExt, dataBytes, receivedExt);
 
-            var signatureBytes = new byte[2];
-            rand.NextBytes(signatureBytes);
-            Array.Copy(signatureBytes, 0, dataBytesWSignature, 0, 2);
-
-            for(int i = 0; i < packetsToSpam; i++)
-                await externalHandler.SendAsync(dataBytesWSignature, SocketFlags.None);
+            await externalHandler.SendAsync(dataBytes, SocketFlags.None);
         }
     }
 
@@ -162,30 +131,10 @@ public class TCPTransport
             var bufferExt = new byte[1_024]; //byte buffer of 1,024 bytes
             var receivedExt = await externalClient.ReceiveAsync(bufferExt, SocketFlags.None);
 
-            if(receivedExt > 2)
-            {
-                var signatureBytes = new byte[2];
-                Array.Copy(bufferExt, signatureBytes, 2);
+            var dataBytes = new byte[receivedExt];
+            Array.Copy(bufferExt, dataBytes, receivedExt);
 
-                ushort signature = BitConverter.ToUInt16(signatureBytes);
-
-                if(!hashMemory.Contains(signature))
-                {
-                    hashMemory.Add(signature);
-                    if(hashMemory.Count > maxHashMemory)
-                        hashMemory.RemoveAt(0);
-
-                    var dataBytes = new byte[receivedExt - 2];
-                    Array.Copy(bufferExt, 2, dataBytes, 0, receivedExt);
-
-                    await internalServer.SendAsync(dataBytes, SocketFlags.None);
-                }
-
-            }
-            else
-            {
-                Debug.LogError("Server External -> Internal packet size less than 3 at "+receivedExt+" ; discarding packet");
-            }
+            await internalServer.SendAsync(dataBytes, SocketFlags.None);
         }
     }
 
@@ -197,15 +146,10 @@ public class TCPTransport
             var bufferExt = new byte[1_024]; //byte buffer of 1,024 bytes
             var receivedExt = await internalServer.ReceiveAsync(bufferExt, SocketFlags.None);
 
-            var dataBytesWSignature = new byte[receivedExt+2];
-            Array.Copy(bufferExt, 0, dataBytesWSignature, 2, receivedExt);
-            
-            var signatureBytes = new byte[2];
-            rand.NextBytes(signatureBytes);
-            Array.Copy(signatureBytes, 0, dataBytesWSignature, 0, 2);
+            var dataBytes = new byte[receivedExt];
+            Array.Copy(bufferExt, dataBytes, receivedExt);
 
-            for(int i = 0; i < packetsToSpam; i++)
-                await externalClient.SendAsync(dataBytesWSignature, SocketFlags.None);
+            await externalClient.SendAsync(dataBytes, SocketFlags.None);
         }
     }
 
