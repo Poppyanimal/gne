@@ -23,7 +23,7 @@ public class displayConsole : MonoBehaviour
         if(currentLog.Length > 1100) { currentLog = currentLog.Substring(0, 1000); }
 
         recentLogs.Add(currentLog);
-        if(recentLogs.Count > 10)
+        if(recentLogs.Count > 16)
             recentLogs.RemoveAt(0);
 
         updateVisual();

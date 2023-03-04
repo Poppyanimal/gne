@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using UnityEngine;
 using Open.Nat;
 using System.Threading;
-using TMPro;
 
 public class netScript : MonoBehaviour
 {
