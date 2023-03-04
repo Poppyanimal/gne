@@ -9,18 +9,20 @@ using UnityEngine;
 //using Unity.Networking.Transport.Relay;
 //using Unity.Networking.Transport.Utilities;
 
-public class TCPTransport
+public class TCPTransport //TODO: better name
 {
     //assumption:
     //using "using" for sockets means I dont have to do
     //socket.Shutdown(SocketShutdown.Both); or
     //socket.Close();
     //because the using will handle it itself
-    Socket externalListener, internalClient, externalClient, internalListener;
+    Socket externalListener, internalClient, externalClient, internalListener,
+        udp_externalListener, /*udp_internalClient,*/ udp_externalClient/*, udp_internalListener*/;
 
-    public async void runServerForwarder(int hostingPort = 25565, int gofPort = 35751)
+    public async void runServerForwarder(int hostingPort = 25565, int gofPort = 35751) //assume that the hosting port will also be accompanied by that port + 1 being open
     {
-        //external hosting via tcp
+        //TODO: have both the TCP over TCP and the UDP over TCP on the same port instead of seperate ones
+
         IPAddress extIP = IPAddress.Any;
         int extPort = hostingPort; //what the other player is looking for w/ their launcher
         IPEndPoint extEndPoint = new IPEndPoint(extIP, extPort);
@@ -31,46 +33,71 @@ public class TCPTransport
         externalListener.Bind(extEndPoint);
         externalListener.Listen(100);
 
-        Debug.Log("waiting for external connection");
+        Debug.Log("waiting for external TCP connection");
         var externalHandler = await externalListener.AcceptAsync();
-        Debug.Log("external connection found");
+        Debug.Log("external connection TCP found");
 
-        //internal client spoof via udp
         IPAddress internIP = IPAddress.Loopback;
         int internPort = gofPort; //where gleam of force is hosting from
         IPEndPoint internEndPoint = new IPEndPoint(internIP, internPort);
 
         internalClient
-            = new(internIP.AddressFamily, SocketType.Stream, ProtocolType.Unspecified);
+            = new(SocketType.Stream, ProtocolType.Tcp);
 
-        Debug.Log("waiting to connect to internal client");
+        Debug.Log("Cconnecting to internal client over TCP");
         await internalClient.ConnectAsync(internEndPoint);
-        Debug.Log("internal client found");
+        Debug.Log("internal client connected over TCP");
 
-        //packet stuff
-        //asumption: an async method will not be waited for completion before the next set of code runs
-        forwardExternalForServerAsync(externalHandler, internalClient);
-        forwardInternalForServerAsync(externalHandler, internalClient);
+        forwardDataInAsync(externalHandler, internalClient);
+        forwardDataOutAsync(externalHandler, internalClient);
+
+        //
+        //start of udp forwarded to tcp stuff instead of just wrapping tcp in tcp
+        //
+
+        //the port that the udp data will be forwarded on instead of the tcp above
+        IPEndPoint udp_ExtEndPoint = new IPEndPoint(extIP, extPort + 1);
+
+        udp_externalListener
+            = new(extIP.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+
+        udp_externalListener.Bind(udp_ExtEndPoint);
+        udp_externalListener.Listen(100);
+
+        Debug.Log("waiting for external UDP over TCP connection");
+        var udp_ExternalHandler = await udp_externalListener.AcceptAsync();
+        Debug.Log("external UDP over TCP connection found");
+
+        UdpClient localUDPCon = new UdpClient(internEndPoint);
+
+        Debug.Log("passing local UDP connection's old implementation. UDP will be handled in forwarding");
+        /*udp_internalClient
+            = new(SocketType.Dgram, ProtocolType.Udp);
+
+        Debug.Log("Connect to internal client over UDP");
+        await udp_internalClient.ConnectAsync(internEndPoint);
+        Debug.Log("internal client connected over UDP");*/
+
+        forwardDataInUDPAsync(udp_ExternalHandler, localUDPCon);
+        forwardDataOutUDPAsync(udp_ExternalHandler, localUDPCon);
     }
 
     public async void runClientForwarder(string ipToConnectTo, int hostPort = 25565, int gofPort = 35751)
     {
-        //internal hosting spoof via udp
         IPAddress internIP = IPAddress.Loopback;
         int internPort = gofPort; //where gleam of force is trying to connect to
         IPEndPoint internEndPoint = new IPEndPoint(internIP, internPort);
 
         internalListener
-            = new(internEndPoint.AddressFamily, SocketType.Stream, ProtocolType.Unspecified);
+            = new(SocketType.Stream, ProtocolType.Tcp);
 
         internalListener.Bind(internEndPoint);
         internalListener.Listen(100);
 
-        Debug.Log("waiting for internal client to be found");
+        Debug.Log("waiting for internal client to be found over TCP");
         var internalHandler = await internalListener.AcceptAsync();
-        Debug.Log("internal client connected");
+        Debug.Log("internal client connected over TCP");
 
-        //external client via tcp
         IPAddress extIP = IPAddress.Parse(ipToConnectTo);
         int extPort = hostPort; //what the other player is looking for w/ their launcher
         IPEndPoint extEndPoint = new IPEndPoint(extIP, extPort);
@@ -78,21 +105,113 @@ public class TCPTransport
         externalClient
             = new(extIP.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 
-        Debug.Log("waiting to connect to external server");
+        Debug.Log("Connecting to external server for TCP over TCP");
         await externalClient.ConnectAsync(extEndPoint);
-        Debug.Log("externel server found");
+        Debug.Log("Externel server found and connected for TCP over TCP");
 
-        //packet stuff
-        //asumption: an async method will not be waited for completion before the next set of code runs
-        forwardExternalForClientAsync(externalClient, internalHandler);
-        forwardInternalForClientAsync(externalClient, internalHandler);
+        forwardDataInAsync(externalClient, internalHandler);
+        forwardDataOutAsync(externalClient, internalHandler);
+        
+        //
+        //start of udp forwarded to tcp stuff instead of just wrapping tcp in tcp
+        //
+        IPEndPoint udp_ExtEndPoint = new IPEndPoint(extIP, extPort + 1);
+
+        UdpClient localUDPCon = new UdpClient(internEndPoint);
+            
+        /*udp_internalListener
+            = new(SocketType.Dgram, ProtocolType.Udp);
+
+        udp_internalListener.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.ReuseAddress, true);
+            
+        udp_internalListener.Bind(internEndPoint);*/
+
+        Debug.Log("passing local UDP connection's old implementation. UDP will be handled in forwarding");
+        //Debug.Log("waiting for internal client to connect over udp");
+        //var udp_InternalHandler = await udp_internalListener.ReceiveAsync();
+        //Debug.Log("internal client connection over udp established");
+        
+        udp_externalClient
+            = new(extIP.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+
+        Debug.Log("Connecting to external server on UDP over TCP");
+        await udp_externalClient.ConnectAsync(udp_ExtEndPoint);
+        Debug.Log("Connected to external server on UDP over TCP");
+
+        forwardDataInUDPAsync(udp_externalClient, localUDPCon);
+        forwardDataOutUDPAsync(udp_externalClient, localUDPCon);
     }
 
     //
     //
     //
 
-    async void forwardExternalForServerAsync(Socket externalHandler, Socket internalClient)
+    async void forwardDataInAsync(Socket externSocket, Socket internSocket)
+    {
+        Debug.Log("forwarding data in started");
+        while(true)
+        {
+            var bufferExt = new byte[1_024]; //byte buffer of 1,024 bytes
+            var receivedExt = await externSocket.ReceiveAsync(bufferExt, SocketFlags.None);
+
+            var dataBytes = new byte[receivedExt];
+            Array.Copy(bufferExt, dataBytes, receivedExt);
+
+            //Debug.Log("inbound network packet: "+BitConverter.ToString(dataBytes));
+
+            await internSocket.SendAsync(dataBytes, SocketFlags.None);
+        }
+    }
+
+    async void forwardDataOutAsync(Socket externSocket, Socket internSocket)
+    {
+        Debug.Log("forwarding data out start");
+        while(true)
+        {
+            var bufferExt = new byte[1_024]; //byte buffer of 1,024 bytes
+            var receivedExt = await internSocket.ReceiveAsync(bufferExt, SocketFlags.None);
+
+            var dataBytes = new byte[receivedExt];
+            Array.Copy(bufferExt, dataBytes, receivedExt);
+            
+            //Debug.Log("outbound network packet: "+BitConverter.ToString(dataBytes));
+
+            await externSocket.SendAsync(dataBytes, SocketFlags.None);
+        }
+    }
+
+    async void forwardDataInUDPAsync(Socket externSocket, UdpClient internClient)
+    {
+        Debug.Log("forwarding data in (UDP) started");
+        while(true)
+        {
+            var bufferExt = new byte[1_024]; //byte buffer of 1,024 bytes
+            var receivedExt = await externSocket.ReceiveAsync(bufferExt, SocketFlags.None);
+
+            var dataBytes = new byte[receivedExt];
+            Array.Copy(bufferExt, dataBytes, receivedExt);
+
+            await internalClient.SendAsync(dataBytes, SocketFlags.None);
+        }
+
+    }
+
+    async void forwardDataOutUDPAsync(Socket externSocket, UdpClient internClient)
+    {
+        IPEndPoint sender = new IPEndPoint(IPAddress.Any, 0);
+        Debug.Log("forwarding data out (UDP) start");
+        while(true)
+        {
+            var dataBytes = internClient.Receive(ref sender);
+            if(sender.Address != IPAddress.Loopback && sender.Port != 35751)
+                continue;
+            
+            await externSocket.SendAsync(dataBytes, SocketFlags.None);
+        }
+        
+    }
+
+    /*async void forwardExternalForServerAsync(Socket externalHandler, Socket internalClient)
     {
         Debug.Log("forwarding external for server started");
         while(true)
@@ -102,6 +221,8 @@ public class TCPTransport
 
             var dataBytes = new byte[receivedExt];
             Array.Copy(bufferExt, dataBytes, receivedExt);
+
+            //Debug.Log("inbound network packet: "+BitConverter.ToString(dataBytes));
 
             await internalClient.SendAsync(dataBytes, SocketFlags.None);
         }
@@ -118,6 +239,8 @@ public class TCPTransport
 
             var dataBytes = new byte[receivedExt];
             Array.Copy(bufferExt, dataBytes, receivedExt);
+            
+            //Debug.Log("outbound network packet: "+BitConverter.ToString(dataBytes));
 
             await externalHandler.SendAsync(dataBytes, SocketFlags.None);
         }
@@ -133,6 +256,8 @@ public class TCPTransport
 
             var dataBytes = new byte[receivedExt];
             Array.Copy(bufferExt, dataBytes, receivedExt);
+            
+            //Debug.Log("inbound network packet: "+BitConverter.ToString(dataBytes));
 
             await internalServer.SendAsync(dataBytes, SocketFlags.None);
         }
@@ -148,10 +273,12 @@ public class TCPTransport
 
             var dataBytes = new byte[receivedExt];
             Array.Copy(bufferExt, dataBytes, receivedExt);
+            
+            //Debug.Log("outbound network packet: "+BitConverter.ToString(dataBytes));
 
             await externalClient.SendAsync(dataBytes, SocketFlags.None);
         }
-    }
+    }*/
 
     /*public void dumpSockets()
     {

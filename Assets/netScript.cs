@@ -36,7 +36,7 @@ public class netScript : MonoBehaviour
         closeGOF();
 
         natPunchViaTCP((ushort)targetPort);
-        natPunchViaUDP((ushort)targetPort);
+        natPunchViaTCP((ushort)(targetPort + 1));
 
         /*if(forwarder != null)
             forwarder.dumpSockets();*/
@@ -105,7 +105,7 @@ public class netScript : MonoBehaviour
     //netcode
     //
 
-    static async void natPunchViaTCP(ushort portToTry)
+    static async void natPunchViaTCP(ushort portToTry) //UPnP
     {
         Protocol protoToUse = Protocol.Tcp;
 
@@ -116,7 +116,7 @@ public class netScript : MonoBehaviour
         await device.CreatePortMapAsync(new Mapping(protoToUse, portToTry, portToTry, "temporary mapping from gof launcher - UPnP"));
     }
     
-    static async void natPunchViaUDP(ushort portToTry)
+    static async void natPunchViaUDP(ushort portToTry) //UPnP
     {
         Protocol protoToUse = Protocol.Udp;
 
